@@ -1,0 +1,36 @@
+name: Ajouter un code
+
+on:
+  repository_dispatch:
+    types: [new-code]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: add-code
+  cancel-in-progress: false
+
+jobs:
+  add:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Enregistrer le code
+        env:
+          CODE: ${{ github.event.client_payload.code }}
+          MODEL: ${{ github.event.client_payload.model }}
+          MODEL_KEYS: ${{ secrets.MODEL_KEYS }}
+        run: node scripts/add-code.mjs
+      - name: Publier
+        run: |
+          git config user.name "shop-bot"
+          git config user.email "shop-bot@users.noreply.github.com"
+          git add data/codes.json
+          git diff --cached --quiet && exit 0
+          git commit -m "Nouveau code"
+          git pull --rebase
+          git push

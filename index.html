@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Télécharger mon modèle 3D</title>
+<style>
+  :root { --bg:#14161c; --card:#1e212b; --text:#f0f0f5; --muted:#a0a5b4; --accent:#00b06f; --err:#e05555; }
+  * { box-sizing:border-box; }
+  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px;
+         background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  main { width:100%; max-width:460px; background:var(--card); border-radius:16px; padding:28px; }
+  h1 { margin:0 0 8px; font-size:1.5rem; }
+  p { margin:0 0 20px; color:var(--muted); line-height:1.5; }
+  input { width:100%; padding:14px; border-radius:10px; border:2px solid #343846; background:var(--bg); color:var(--text);
+          font:600 1.1rem ui-monospace,Consolas,monospace; text-transform:uppercase; letter-spacing:.05em; }
+  input:focus { outline:none; border-color:var(--accent); }
+  button { width:100%; margin-top:14px; padding:14px; border:0; border-radius:10px; background:var(--accent); color:#fff;
+           font:700 1rem inherit; cursor:pointer; }
+  button:disabled { opacity:.6; cursor:wait; }
+  #status { margin-top:16px; min-height:1.4em; font-size:.95rem; }
+  .ok { color:var(--accent); } .err { color:var(--err); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Télécharger mon modèle 3D</h1>
+  <p>Colle le code que tu as reçu dans Roblox après ton achat.</p>
+  <input id="code" placeholder="SABRE-XXXX-XXXX-XXXX-XXXX" autocomplete="off" spellcheck="false">
+  <button id="go">Télécharger</button>
+  <div id="status" role="status"></div>
+</main>
+
+<script>
+const enc = new TextEncoder();
+const b64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+const $ = id => document.getElementById(id);
+
+function say(text, cls) { $("status").className = cls || ""; $("status").textContent = text; }
+
+async function sha256hex(text) {
+  const h = new Uint8Array(await crypto.subtle.digest("SHA-256", enc.encode(text)));
+  return Array.from(h, b => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function getJson(path) {
+  const r = await fetch(path + "?t=" + Date.now(), { cache: "no-store" });
+  if (!r.ok) throw new Error("load");
+  return r.json();
+}
+
+async function redeem() {
+  const code = $("code").value.trim().toUpperCase().replace(/\s+/g, "");
+  if (!code) return say("Entre ton code.", "err");
+  $("go").disabled = true;
+  try {
+    say("Vérification du code…");
+    const [codes, models] = await Promise.all([getJson("data/codes.json"), getJson("models.json")]);
+    const entry = codes[await sha256hex(code)];
+    if (!entry || !models[entry.model]) {
+      return say("Code introuvable. Si tu viens d’acheter, attends environ une minute puis réessaie.", "err");
+    }
+    const model = models[entry.model];
+
+    say("Déchiffrement…");
+    const base = await crypto.subtle.importKey("raw", enc.encode(code), "PBKDF2", false, ["deriveKey"]);
+    const wrapKey = await crypto.subtle.deriveKey(
+      { name: "PBKDF2", salt: b64(entry.salt), iterations: 100000, hash: "SHA-256" },
+      base, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+    const rawKey = await crypto.subtle.decrypt({ name: "AES-GCM", iv: b64(entry.iv) }, wrapKey, b64(entry.ct));
+    const fileKey = await crypto.subtle.importKey("raw", rawKey, "AES-GCM", false, ["decrypt"]);
+
+    say("Téléchargement du modèle…");
+    const r = await fetch(model.file);
+    if (!r.ok) throw new Error("load");
+    const data = new Uint8Array(await r.arrayBuffer());
+    const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: data.slice(0, 12) }, fileKey, data.slice(12));
+
+    const url = URL.createObjectURL(new Blob([plain], { type: "model/gltf-binary" }));
+    const a = Object.assign(document.createElement("a"), { href: url, download: model.downloadName });
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    say("C’est parti ! " + model.title + " se télécharge.", "ok");
+  } catch (e) {
+    say("Une erreur est survenue. Vérifie ton code et réessaie.", "err");
+  } finally {
+    $("go").disabled = false;
+  }
+}
+
+$("go").addEventListener("click", redeem);
+$("code").addEventListener("keydown", e => { if (e.key === "Enter") redeem(); });
+</script>
+</body>
+</html>
