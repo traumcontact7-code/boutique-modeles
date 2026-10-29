@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Télécharger mon modèle 3D</title>
+<style>
+  :root { --bg:#14161c; --card:#1e212b; --text:#f0f0f5; --muted:#a0a5b4; --accent:#00b06f; --err:#e05555; }
+  * { box-sizing:border-box; }
+  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px;
+         background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  main { width:100%; max-width:460px; background:var(--card); border-radius:16px; padding:28px; }
+  h1 { margin:0 0 8px; font-size:1.5rem; }
+  p { margin:0 0 20px; color:var(--muted); line-height:1.5; }
+  input { width:100%; padding:14px; border-radius:10px; border:2px solid #343846; background:var(--bg); color:var(--text);
+          font:600 1.1rem ui-monospace,Consolas,monospace; text-transform:uppercase; letter-spacing:.05em; }
+  input:focus { outline:none; border-color:var(--accent); }
+  button { width:100%; margin-top:14px; padding:14px; border:0; border-radius:10px; background:var(--accent); color:#fff;
+           font:700 1rem inherit; cursor:pointer; }
+  button:disabled { opacity:.6; cursor:wait; }
+  #status { margin-top:16px; min-height:1.4em; font-size:.95rem; }
+  .ok { color:var(--accent); } .err { color:var(--err); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Télécharger mon modèle 3D</h1>
+  <p>Colle le code que tu as reçu dans Roblox après ton achat.</p>
+  <input id="code" placeholder="SABRE-XXXX-XXXX-XXXX-XXXX" autocomplete="off" spellcheck="false">
+  <button id="go">Télécharger</button>
+  <div id="status" role="status"></div>
+</main>
+
+<script src="config.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const b64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+
+function say(text, cls) { $("status").className = cls || ""; $("status").textContent = text; }
+
+async function api(path, code) {
+  const r = await fetch(window.SHOP_API + path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code }),
+  });
+  let data = {};
+  try { data = await r.json(); } catch (e) {}
+  return { status: r.status, data };
+}
+
+function codeError(status) {
+  if (status === 410) return "Ce code a déjà été utilisé.";
+  if (status === 404) return "Code introuvable. Vérifie-le et réessaie.";
+  return "Une erreur est survenue. Réessaie dans un instant.";
+}
+
+async function redeem() {
+  const code = $("code").value.trim().toUpperCase().replace(/\s+/g, "");
+  if (!code) return say("Entre ton code.", "err");
+  if (!window.SHOP_API) return say("Le site n’est pas encore configuré (config.js).", "err");
+  $("go").disabled = true;
+  try {
+    say("Vérification du code…");
+    const chk = await api("/check", code);
+    if (chk.status !== 200) return say(codeError(chk.status), "err");
+
+    const models = await (await fetch("models.json?t=" + Date.now(), { cache: "no-store" })).json();
+    const model = models[chk.data.model];
+    if (!model) return say("Ce modèle n’est pas disponible pour le moment.", "err");
+
+    say("Téléchargement du modèle…");
+    const file = await fetch(model.file);
+    if (!file.ok) return say("Fichier introuvable. Réessaie dans un instant.", "err");
+    const data = new Uint8Array(await file.arrayBuffer());
+
+    // Le code est consommé ici : il ne servira plus jamais
+    const red = await api("/redeem", code);
+    if (red.status !== 200) return say(codeError(red.status), "err");
+
+    say("Déchiffrement…");
+    const key = await crypto.subtle.importKey("raw", b64(red.data.key), "AES-GCM", false, ["decrypt"]);
+    const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: data.slice(0, 12) }, key, data.slice(12));
+
+    const url = URL.createObjectURL(new Blob([plain], { type: "model/gltf-binary" }));
+    const a = Object.assign(document.createElement("a"), { href: url, download: model.downloadName });
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    say("C’est parti ! " + model.title + " se télécharge. Ce code ne fonctionne plus.", "ok");
+  } catch (e) {
+    say("Une erreur est survenue. Réessaie dans un instant.", "err");
+  } finally {
+    $("go").disabled = false;
+  }
+}
+
+$("go").addEventListener("click", redeem);
+$("code").addEventListener("keydown", e => { if (e.key === "Enter") redeem(); });
+</script>
+</body>
+</html>
