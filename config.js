@@ -1,0 +1,2 @@
+// Adresse de ton Worker Cloudflare (sans "/" à la fin).
+window.SHOP_API = "https://boutique-roblox.traumcontact7.workers.dev";
