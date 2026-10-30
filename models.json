@@ -1,0 +1,12 @@
+{
+  "lot-sabre": {
+    "title": "Lot Sabre",
+    "file": "lot-sabre.glb.enc",
+    "downloadName": "lot-sabre.glb"
+  },
+  "cathedrale-bloc": {
+    "title": "Cathédrale Bloc",
+    "file": "models/cathedrale-bloc.glb.enc",
+    "downloadName": "cathedrale-bloc.glb"
+  }
+}
